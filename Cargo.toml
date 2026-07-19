@@ -1,0 +1,8 @@
+[package]
+name = "table_bison"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+dart_io = "0.1.1"
+beve = "3"
