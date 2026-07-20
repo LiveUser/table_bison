@@ -2,6 +2,7 @@
 name = "table_bison"
 version = "0.0.1"
 edition = "2024"
+description = "A BEVE based data storage system."
 
 [dependencies]
 dart_io = "0.1.1"

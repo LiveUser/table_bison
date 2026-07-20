@@ -4,12 +4,6 @@ use dart_io::{Directory, File, FileSystemEntity};
 
 pub struct ErrorPerformingTheOperation;
 
-pub enum DataType {
-    String(String),
-    Number(i128),
-    Boolean(bool),
-    Null,
-}
 pub struct DbTable{
     table_path:String,
 }
@@ -45,7 +39,7 @@ impl DbTable{
         }
         return  unique_number;
     }
-    pub fn create_item(&self) -> Result<u128,ErrorPerformingTheOperation>{
+    pub fn create_record(&self) -> Result<u128,ErrorPerformingTheOperation>{
         //Create table if it does not exist
         self.create_table();
         //Find a non existent file name
@@ -69,24 +63,41 @@ impl DbTable{
             },
         }
     }
-    pub fn insert(&self, uuid:u128, key:String, value:Value) -> Result<(),ErrorPerformingTheOperation>{
+    pub fn view(&self, uuid:u128,) -> Result<BTreeMap<Key,Value>, ErrorPerformingTheOperation>{
         let full_path = self.generate_file_path(uuid);
         let file:File = File{
             full_path: full_path,
         };
         //Read file
-        let mut bytes:Vec<u8> = file.read_as_bytes();
+        let bytes:Vec<u8> = file.read_as_bytes();
         match beve::from_slice::<Value>(&bytes) {
             Err(_) => {
                 return Err(ErrorPerformingTheOperation);
             },
-            Ok(Value::Object(mut object)) => {
+            Ok(Value::Object(object)) => {
+                return Ok(object);
+            },
+            Ok(_) => {
+                return Err(ErrorPerformingTheOperation);
+            },
+        }
+    }
+    pub fn insert(&self, uuid:u128, key:String, value:Value) -> Result<(),ErrorPerformingTheOperation>{
+        match self.view(uuid) {
+            Err(_)=> {
+                return Err(ErrorPerformingTheOperation);
+            },
+            Ok(mut object)=>{
                 //insert data
                 object.insert(Key::String(key), value);
                 //write back to the file system
                 let beve_value:Value = Value::Object(object);
                 match beve::to_vec(&beve_value) {
                     Ok(bytes) => {
+                        let full_path = self.generate_file_path(uuid);
+                        let file:File = File{
+                            full_path: full_path,
+                        };
                         file.write_as_bytes(bytes);
                         return Ok(());
                     },
@@ -95,20 +106,76 @@ impl DbTable{
                     },
                 }
             },
-            Ok(_) => {
-                return Err(ErrorPerformingTheOperation);
+        }
+    }
+    pub fn get(&self, uuid:u128, key:String) -> Option<Value>{
+        match self.view(uuid) {
+            Err(_)=>{
+                return None;
+            },
+            Ok(object)=>{
+                match object.get(&Key::String(key)) {
+                    None=>{
+                        return None;
+                    },
+                    Some(value)=>{
+                        return  Some(value.clone());
+                    }
+                }
             },
         }
     }
+    //TODO: Remove record
+
+    //TODO: Iterator
+
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use beve::Number;
+
+use super::*;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn basic_tests() {
+        let table:DbTable = DbTable { 
+            table_path: "./inventory".to_string(),
+        };
+        //Creates table if it does not exist
+        table.create_table();
+        match table.create_record() {
+            Err(_)=>{
+                //DO nothing
+            },
+            Ok(uuid)=>{
+                let _ = table.insert(uuid, "product".to_string(), Value::String("Steak".to_string()));
+                let _ = table.insert(uuid, "price".to_string(), Value::Number(Number::F64(f64::from(4.78))));
+                let _ = table.insert(uuid, "amount".to_string(), Value::Number(Number::U64(17 as u64)));
+                match table.view(uuid) {
+                    Err(_)=>{
+                        //Nothing
+                    },
+                    Ok(object)=>{
+                        println!("{:?}", object); 
+                    }
+                }
+                match table.get(uuid, "product".to_string()) {
+                    Some(value)=> {
+                        match value {
+                            Value::String(text)=>{
+                                println!("{}",text);
+                            },
+                            _=> {
+
+                            },
+                        }
+                    },
+                    _=> {
+
+                    },
+                };
+            }
+        }
     }
 }
