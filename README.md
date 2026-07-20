@@ -20,12 +20,15 @@ Returns a BTreeMap for the given uuid.
 Inserts data into the object with the specified uuid
 - get
 Gets the corresponding value for a given a uuid and key.
-
+- remove_record
+Deletes the object with the specified uuid
+- iterator
+Allows to easily index through a table
 
 
 ## Full example (I'm new to Rust so the code is a mess)
 ~~~rs
-let table:DbTable = DbTable { 
+let table:DbTable = DbTable {
     table_path: "./inventory".to_string(),
 };
 //Creates table if it does not exist
@@ -52,15 +55,28 @@ match table.create_record() {
                     Value::String(text)=>{
                         println!("{}",text);
                     },
-                    _=> {
-
-                    },
+                    _=> {},
                 }
             },
-            _=> {
-
-            },
+            _=> {},
         };
     }
 }
+//Delete all records
+table.iterator(&mut |object|{
+    match object.get(&Key::String("uuid".to_string())) {
+        None =>
+        },
+        Some(value)=>{
+            match value {
+                Value::Number(uuid)=> {
+                    table.remove_record(uuid.as_u64().unwrap());
+                },
+                _=>{
+                    //Ignore other data types
+                },
+            }
+        },
+    }
+});
 ~~~

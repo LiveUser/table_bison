@@ -1,5 +1,5 @@
 use beve::{Value, Key, Object};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map};
 use dart_io::{Directory, File, FileSystemEntity};
 
 pub struct ErrorPerformingTheOperation;
@@ -17,16 +17,16 @@ impl DbTable{
             table_directory.create_sync();
         }
     }
-    fn generate_file_path(&self, unique_number:u128) -> String{
+    fn generate_file_path(&self, unique_number:u64) -> String{
         let table_directory:Directory = Directory{
             full_path: self.table_path.clone(),
         };
         let full_file_path:String = format!("{}/{}..beve",table_directory.full_path,unique_number.to_string());
         return full_file_path;
     }
-    fn get_unused_uuid(&self) -> u128{
+    fn get_unused_uuid(&self) -> u64{
         let mut is_unique:bool = false;
-        let mut unique_number:u128 = 1;
+        let mut unique_number:u64 = 1;
         while !is_unique {
             let full_file_path:String = self.generate_file_path(unique_number);
             let file:File = File { 
@@ -39,11 +39,11 @@ impl DbTable{
         }
         return  unique_number;
     }
-    pub fn create_record(&self) -> Result<u128,ErrorPerformingTheOperation>{
+    pub fn create_record(&self) -> Result<u64,ErrorPerformingTheOperation>{
         //Create table if it does not exist
         self.create_table();
         //Find a non existent file name
-        let uuid:u128 = self.get_unused_uuid();
+        let uuid:u64 = self.get_unused_uuid();
         let obj: Object = BTreeMap::new();
         let beve_value:Value = Value::Object(obj);
         match beve::to_vec(&beve_value) {
@@ -63,7 +63,7 @@ impl DbTable{
             },
         }
     }
-    pub fn view(&self, uuid:u128,) -> Result<BTreeMap<Key,Value>, ErrorPerformingTheOperation>{
+    pub fn view(&self, uuid:u64,) -> Result<BTreeMap<Key,Value>, ErrorPerformingTheOperation>{
         let full_path = self.generate_file_path(uuid);
         let file:File = File{
             full_path: full_path,
@@ -74,7 +74,8 @@ impl DbTable{
             Err(_) => {
                 return Err(ErrorPerformingTheOperation);
             },
-            Ok(Value::Object(object)) => {
+            Ok(Value::Object(mut object)) => {
+                object.insert(Key::String("uuid".to_string()), Value::Number(beve::Number::U64(uuid)));
                 return Ok(object);
             },
             Ok(_) => {
@@ -82,7 +83,7 @@ impl DbTable{
             },
         }
     }
-    pub fn insert(&self, uuid:u128, key:String, value:Value) -> Result<(),ErrorPerformingTheOperation>{
+    pub fn insert(&self, uuid:u64, key:String, value:Value) -> Result<(),ErrorPerformingTheOperation>{
         match self.view(uuid) {
             Err(_)=> {
                 return Err(ErrorPerformingTheOperation);
@@ -108,7 +109,7 @@ impl DbTable{
             },
         }
     }
-    pub fn get(&self, uuid:u128, key:String) -> Option<Value>{
+    pub fn get(&self, uuid:u64, key:String) -> Option<Value>{
         match self.view(uuid) {
             Err(_)=>{
                 return None;
@@ -126,8 +127,54 @@ impl DbTable{
         }
     }
     //TODO: Remove record
-
+    pub fn remove_record(&self, uuid:u64) -> (){
+        let full_path = self.generate_file_path(uuid);
+        let file:File = File{
+            full_path: full_path,
+        };
+        file.delete_sync();
+    }
     //TODO: Iterator
+    pub fn iterator(&self, callback: &mut dyn FnMut(BTreeMap<Key, Value>)) -> (){
+        let table_contents:Vec<FileSystemEntity> = Directory{
+            full_path: self.table_path.clone(),
+        }.list_contents();
+        for file_system_entity in table_contents{
+            match file_system_entity {
+                FileSystemEntity::Directory(_)=>{
+                    //Do nothing
+                },
+                FileSystemEntity::File(file)=>{
+                    let mut file_uuid:String = file.full_path;
+                    match file_uuid.find("/") {
+                        None=>{
+                            //Do nothing
+                        },
+                        Some(slash_index)=>{
+                            let length = file_uuid.len();
+                            file_uuid = file_uuid[slash_index..length].to_string();
+                            match file_uuid.find(".beve") {
+                                None=>{
+                                    //Do nothing
+                                },
+                                Some(extension_index)=>{
+                                    file_uuid = file_uuid[0..extension_index].to_string();
+                                    match self.view(file_uuid.parse::<u64>().unwrap()) {
+                                        Err(_)=>{
+                                            //Ignore corrupted file
+                                        },
+                                        Ok(object)=>{
+                                            callback(object);
+                                        },
+                                    }
+                                },
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
 
 }
 
@@ -139,7 +186,7 @@ use super::*;
 
     #[test]
     fn basic_tests() {
-        let table:DbTable = DbTable { 
+        let table:DbTable = DbTable {
             table_path: "./inventory".to_string(),
         };
         //Creates table if it does not exist
@@ -166,16 +213,30 @@ use super::*;
                             Value::String(text)=>{
                                 println!("{}",text);
                             },
-                            _=> {
-
-                            },
+                            _=> {},
                         }
                     },
-                    _=> {
-
-                    },
+                    _=> {},
                 };
             }
         }
+        //Delete all records
+        table.iterator(&mut |object|{
+            match object.get(&Key::String("uuid".to_string())) {
+                None =>{
+
+                },
+                Some(value)=>{
+                    match value {
+                        Value::Number(uuid)=> {
+                            table.remove_record(uuid.as_u64().unwrap());
+                        },
+                        _=>{
+                            //Ignore other data types
+                        },
+                    }
+                },
+            }
+        });
     }
 }
