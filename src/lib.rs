@@ -5,7 +5,7 @@ use dart_io::{Directory, File, FileSystemEntity};
 pub struct ErrorPerformingTheOperation;
 
 pub struct DbTable{
-    table_path:String,
+    pub table_path:String,
 }
 impl DbTable{
     //Create item and return uuid of the item
