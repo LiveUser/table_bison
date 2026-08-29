@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "table_bison"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "beve",
  "dart_io",
