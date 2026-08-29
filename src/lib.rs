@@ -9,7 +9,7 @@ pub struct DbTable{
 }
 impl DbTable{
     //Create item and return uuid of the item
-    fn create_table(&self) -> () {
+    pub fn create_table(&self) -> () {
         let table_directory:Directory = Directory{
             full_path: self.table_path.clone(),
         };
