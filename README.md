@@ -1,6 +1,8 @@
 # Table Bison
-A BEVE based data storage system.
---- Under Development ---
+A BSON based data storage system.
+## Breaking changes
+Switched from BEVE to BSON for cross compatibility. I want to build a similar library for dart but no BEVE package is available in the dart ecosystem.
+
 ## Class
 - DbTable
 An object with a file system path pointing to the folder where all of the table data will be stored.
@@ -26,7 +28,7 @@ Deletes the object with the specified uuid
 Allows to easily index through a table
 
 
-## Full example (I'm new to Rust so the code is a mess)
+## Full example
 ~~~rs
 let table:DbTable = DbTable {
     table_path: "./inventory".to_string(),
@@ -38,9 +40,9 @@ match table.create_record() {
         //DO nothing
     },
     Ok(uuid)=>{
-        let _ = table.insert(uuid, "product".to_string(), Value::String("Steak".to_string()));
-        let _ = table.insert(uuid, "price".to_string(), Value::Number(Number::F64(f64::from(4.78))));
-        let _ = table.insert(uuid, "amount".to_string(), Value::Number(Number::U64(17 as u64)));
+        let _ = table.insert(uuid, "product".to_string(), Dynamic::String("Steak".to_string()));
+        let _ = table.insert(uuid, "price".to_string(), Dynamic::Number(4.78 as f64));
+        let _ = table.insert(uuid, "amount".to_string(), Dynamic::Number(17 as f64));
         match table.view(uuid) {
             Err(_)=>{
                 //Nothing
@@ -50,33 +52,20 @@ match table.create_record() {
             }
         }
         match table.get(uuid, "product".to_string()) {
-            Some(value)=> {
-                match value {
-                    Value::String(text)=>{
-                        println!("{}",text);
-                    },
-                    _=> {},
-                }
+            Dynamic::String(text)=>{
+                println!("{}",text);
             },
             _=> {},
         };
     }
 }
 //Delete all records
-table.iterator(&mut |object|{
-    match object.get(&Key::String("uuid".to_string())) {
-        None =>
-        },
-        Some(value)=>{
-            match value {
-                Value::Number(uuid)=> {
-                    table.remove_record(uuid.as_u64().unwrap());
-                },
-                _=>{
-                    //Ignore other data types
-                },
-            }
-        },
+table.iterator(&mut |mut object|{
+    match object.get("uuid".to_string()) {
+        Dynamic::Number(uuid)=>{
+            table.remove_record(uuid.round() as u64);
+        }
+        _=>{}
     }
 });
 ~~~

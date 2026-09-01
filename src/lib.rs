@@ -1,8 +1,9 @@
-use beve::{Value, Key, Object};
-use std::collections::{BTreeMap, btree_map};
 use dart_io::{Directory, File, FileSystemEntity};
+use easy_bson::{Dynamic,Map};
 
-pub struct ErrorPerformingTheOperation;
+pub struct ErrorPerformingTheOperation{
+    pub message:String,
+}
 
 pub struct DbTable{
     pub table_path:String,
@@ -21,7 +22,7 @@ impl DbTable{
         let table_directory:Directory = Directory{
             full_path: self.table_path.clone(),
         };
-        let full_file_path:String = format!("{}/{}..beve",table_directory.full_path,unique_number.to_string());
+        let full_file_path:String = format!("{}/{}.bson",table_directory.full_path,unique_number.to_string());
         return full_file_path;
     }
     fn get_unused_uuid(&self) -> u64{
@@ -44,9 +45,8 @@ impl DbTable{
         self.create_table();
         //Find a non existent file name
         let uuid:u64 = self.get_unused_uuid();
-        let obj: Object = BTreeMap::new();
-        let beve_value:Value = Value::Object(obj);
-        match beve::to_vec(&beve_value) {
+        let obj:Map = Map::new();
+        match obj.save_as_bytes(){
             Ok(bytes) => {
                 let full_path = self.generate_file_path(uuid);
                 let new_file:File = File {
@@ -58,42 +58,41 @@ impl DbTable{
                     uuid,
                 );
             },
-            Err(_) => {
-                return Err(ErrorPerformingTheOperation);
+            Err(error) => {
+                return Err(ErrorPerformingTheOperation{
+                    message: error.message,
+                });
             },
         }
     }
-    pub fn view(&self, uuid:u64,) -> Result<BTreeMap<Key,Value>, ErrorPerformingTheOperation>{
+    pub fn view(&self, uuid:u64,) -> Result<Map, ErrorPerformingTheOperation>{
         let full_path = self.generate_file_path(uuid);
         let file:File = File{
             full_path: full_path,
         };
         //Read file
         let bytes:Vec<u8> = file.read_as_bytes();
-        match beve::from_slice::<Value>(&bytes) {
+        match Map::load_from_bytes(bytes) {
             Err(_) => {
-                return Err(ErrorPerformingTheOperation);
+                return Err(ErrorPerformingTheOperation{
+                    message: "Invalid BSON.".to_string(),
+                });
             },
-            Ok(Value::Object(mut object)) => {
-                object.insert(Key::String("uuid".to_string()), Value::Number(beve::Number::U64(uuid)));
+            Ok(mut object) => {
+                object.insert("uuid".to_string(), Dynamic::Number(uuid as f64));
                 return Ok(object);
-            },
-            Ok(_) => {
-                return Err(ErrorPerformingTheOperation);
             },
         }
     }
-    pub fn insert(&self, uuid:u64, key:String, value:Value) -> Result<(),ErrorPerformingTheOperation>{
+    pub fn insert(&self, uuid:u64, key:String, value:Dynamic) -> Result<(),ErrorPerformingTheOperation>{
         match self.view(uuid) {
-            Err(_)=> {
-                return Err(ErrorPerformingTheOperation);
+            Err(error)=> {
+                return Err(error);
             },
             Ok(mut object)=>{
                 //insert data
-                object.insert(Key::String(key), value);
-                //write back to the file system
-                let beve_value:Value = Value::Object(object);
-                match beve::to_vec(&beve_value) {
+                object.insert(key, value);
+                match object.save_as_bytes() {
                     Ok(bytes) => {
                         let full_path = self.generate_file_path(uuid);
                         let file:File = File{
@@ -102,27 +101,22 @@ impl DbTable{
                         file.write_as_bytes(bytes);
                         return Ok(());
                     },
-                    Err(_) => {
-                        return Err(ErrorPerformingTheOperation);
+                    Err(error) => {
+                        return Err(ErrorPerformingTheOperation{
+                            message: error.message,
+                        });
                     },
                 }
             },
         }
     }
-    pub fn get(&self, uuid:u64, key:String) -> Option<Value>{
+    pub fn get(&self, uuid:u64, key:String) -> Dynamic{
         match self.view(uuid) {
             Err(_)=>{
-                return None;
+                return Dynamic::Null;
             },
-            Ok(object)=>{
-                match object.get(&Key::String(key)) {
-                    None=>{
-                        return None;
-                    },
-                    Some(value)=>{
-                        return  Some(value.clone());
-                    }
-                }
+            Ok(mut object)=>{
+                return object.get(key);
             },
         }
     }
@@ -135,7 +129,7 @@ impl DbTable{
         file.delete_sync();
     }
     //TODO: Iterator
-    pub fn iterator(&self, callback: &mut dyn FnMut(BTreeMap<Key, Value>)) -> (){
+    pub fn iterator(&self, callback: &mut dyn FnMut(Map)) -> (){
         let table_contents:Vec<FileSystemEntity> = Directory{
             full_path: self.table_path.clone(),
         }.list_contents();
@@ -146,19 +140,18 @@ impl DbTable{
                 },
                 FileSystemEntity::File(file)=>{
                     let mut file_uuid:String = file.full_path;
-                    match file_uuid.find("/") {
+                    match file_uuid.rfind("/|\\") {
                         None=>{
                             //Do nothing
                         },
                         Some(slash_index)=>{
-                            let length = file_uuid.len();
-                            file_uuid = file_uuid[slash_index..length].to_string();
-                            match file_uuid.find(".beve") {
+                            match file_uuid.rfind(".bson") {
                                 None=>{
                                     //Do nothing
                                 },
                                 Some(extension_index)=>{
-                                    file_uuid = file_uuid[0..extension_index].to_string();
+                                    file_uuid = file_uuid[(slash_index + 1)..extension_index].to_string();
+                                    println!("--------------{}", file_uuid);
                                     match self.view(file_uuid.parse::<u64>().unwrap()) {
                                         Err(_)=>{
                                             //Ignore corrupted file
@@ -180,7 +173,6 @@ impl DbTable{
 
 #[cfg(test)]
 mod tests {
-    use beve::Number;
 
 use super::*;
 
@@ -196,9 +188,9 @@ use super::*;
                 //DO nothing
             },
             Ok(uuid)=>{
-                let _ = table.insert(uuid, "product".to_string(), Value::String("Steak".to_string()));
-                let _ = table.insert(uuid, "price".to_string(), Value::Number(Number::F64(f64::from(4.78))));
-                let _ = table.insert(uuid, "amount".to_string(), Value::Number(Number::U64(17 as u64)));
+                let _ = table.insert(uuid, "product".to_string(), Dynamic::String("Steak".to_string()));
+                let _ = table.insert(uuid, "price".to_string(), Dynamic::Number(4.78 as f64));
+                let _ = table.insert(uuid, "amount".to_string(), Dynamic::Number(17 as f64));
                 match table.view(uuid) {
                     Err(_)=>{
                         //Nothing
@@ -208,34 +200,20 @@ use super::*;
                     }
                 }
                 match table.get(uuid, "product".to_string()) {
-                    Some(value)=> {
-                        match value {
-                            Value::String(text)=>{
-                                println!("{}",text);
-                            },
-                            _=> {},
-                        }
+                    Dynamic::String(text)=>{
+                        println!("{}",text);
                     },
                     _=> {},
                 };
             }
         }
         //Delete all records
-        table.iterator(&mut |object|{
-            match object.get(&Key::String("uuid".to_string())) {
-                None =>{
-
-                },
-                Some(value)=>{
-                    match value {
-                        Value::Number(uuid)=> {
-                            table.remove_record(uuid.as_u64().unwrap());
-                        },
-                        _=>{
-                            //Ignore other data types
-                        },
-                    }
-                },
+        table.iterator(&mut |mut object|{
+            match object.get("uuid".to_string()) {
+                Dynamic::Number(uuid)=>{
+                    table.remove_record(uuid.round() as u64);
+                }
+                _=>{}
             }
         });
     }
